@@ -34,3 +34,4 @@ env_logger = "0.9"
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.2.17", default-features = false, features = ["env-filter", "fmt"] }
 test-log = "0.2"
+bytesize = "2.0.1"
