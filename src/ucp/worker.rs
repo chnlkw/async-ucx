@@ -122,6 +122,11 @@ impl Worker {
         Endpoint::connect_addr(self, addr.handle)
     }
 
+    /// Connect to a remote worker by address.
+    pub fn connect_addr_vec(self: &Rc<Self>, addr: &[u8]) -> Result<Endpoint, Error> {
+        Endpoint::connect_addr(self, addr.as_ptr() as _)
+    }
+
     /// Connect to a remote listener.
     pub async fn connect_socket(self: &Rc<Self>, addr: SocketAddr) -> Result<Endpoint, Error> {
         Endpoint::connect_socket(self, addr).await
@@ -193,6 +198,7 @@ impl<'a> AsRef<[u8]> for WorkerAddress<'a> {
 
 impl<'a> Drop for WorkerAddress<'a> {
     fn drop(&mut self) {
+        trace!("destroy worker address= {:?} {:?}", self.worker.handle, self.handle);
         unsafe { ucp_worker_release_address(self.worker.handle, self.handle) }
     }
 }
