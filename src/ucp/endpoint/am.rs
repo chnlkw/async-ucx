@@ -273,9 +273,9 @@ impl<'a> AmMsg<'a> {
                 } else if UCS_PTR_IS_PTR(status) {
                     RequestHandle {
                         ptr: status,
-                        poll_fn: poll_recv,
+                        poll_fn: poll_normal,
                     }
-                    .await;
+                    .await?;
                     Ok(data_len)
                 } else {
                     Err(Error::from_ptr(status).unwrap_err())
@@ -577,15 +577,6 @@ async fn am_send(
         .await
     } else {
         Err(Error::from_ptr(status).unwrap_err())
-    }
-}
-
-unsafe fn poll_recv(ptr: ucs_status_ptr_t) -> Poll<()> {
-    let status = ucp_request_check_status(ptr as _);
-    if status == ucs_status_t::UCS_INPROGRESS {
-        Poll::Pending
-    } else {
-        Poll::Ready(())
     }
 }
 

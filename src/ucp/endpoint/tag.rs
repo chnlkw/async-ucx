@@ -199,13 +199,13 @@ impl Endpoint {
     }
 }
 
-unsafe fn poll_tag(ptr: ucs_status_ptr_t) -> Poll<Result<(u64, usize), Error>> {
+fn poll_tag(ptr: ucs_status_ptr_t) -> Poll<Result<(u64, usize), Error>> {
     let mut info = MaybeUninit::<ucp_tag_recv_info>::uninit();
-    let status = ucp_tag_recv_request_test(ptr as _, info.as_mut_ptr() as _);
+    let status = unsafe { ucp_tag_recv_request_test(ptr as _, info.as_mut_ptr() as _) };
     match status {
         ucs_status_t::UCS_INPROGRESS => Poll::Pending,
         ucs_status_t::UCS_OK => {
-            let info = info.assume_init();
+            let info = unsafe { info.assume_init() };
             Poll::Ready(Ok((info.sender_tag, info.length as usize)))
         }
         status => Poll::Ready(Err(Error::from_error(status))),

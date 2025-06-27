@@ -253,7 +253,7 @@ impl Endpoint {
             Ok(())
         } else if UCS_PTR_IS_PTR(status) {
             let result = loop {
-                if let Poll::Ready(result) = unsafe { poll_normal(status) } {
+                if let Poll::Ready(result) = poll_normal(status) {
                     unsafe { ucp_request_free(status as _) };
                     break result;
                 } else {
@@ -302,32 +302,32 @@ impl Drop for Endpoint {
 }
 
 /// A handle to the request returned from async IO functions.
-struct RequestHandle<T> {
+struct RequestHandle<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> {
     ptr: ucs_status_ptr_t,
-    poll_fn: unsafe fn(ucs_status_ptr_t) -> Poll<T>,
+    poll_fn: F,
 }
 
-impl<T> Future for RequestHandle<T> {
+impl<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> Future for RequestHandle<T, F> {
     type Output = T;
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
-        if let ret @ Poll::Ready(_) = unsafe { (self.poll_fn)(self.ptr) } {
+        if let ret @ Poll::Ready(_) = (self.poll_fn)(self.ptr) {
             return ret;
         }
         let request = unsafe { &mut *(self.ptr as *mut Request) };
         request.waker.register(cx.waker());
-        unsafe { (self.poll_fn)(self.ptr) }
+        (self.poll_fn)(self.ptr)
     }
 }
 
-impl<T> Drop for RequestHandle<T> {
+impl<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> Drop for RequestHandle<T, F> {
     fn drop(&mut self) {
         trace!("request free: {:?}", self.ptr);
         unsafe { ucp_request_free(self.ptr as _) };
     }
 }
 
-unsafe fn poll_normal(ptr: ucs_status_ptr_t) -> Poll<Result<(), Error>> {
-    let status = ucp_request_check_status(ptr as _);
+fn poll_normal(ptr: ucs_status_ptr_t) -> Poll<Result<(), Error>> {
+    let status = unsafe { ucp_request_check_status(ptr as _) };
     if status == ucs_status_t::UCS_INPROGRESS {
         Poll::Pending
     } else {
