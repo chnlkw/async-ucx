@@ -123,7 +123,7 @@ impl WorkerThread {
                 .build()
                 .unwrap();
             let local = tokio::task::LocalSet::new();
-            #[cfg(not(event))]
+            #[cfg(not(feature = "event"))]
             local.spawn_local(worker.clone().polling());
             #[cfg(feature = "event")]
             local.spawn_local(worker.clone().event_poll());
