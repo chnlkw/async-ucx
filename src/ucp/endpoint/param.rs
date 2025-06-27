@@ -32,6 +32,16 @@ impl RequestParam {
         self
     }
 
+    pub fn cb_stream_recv(mut self, callback: ucp_stream_recv_nbx_callback_t) -> Self {
+        self.inner.op_attr_mask |= ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32;
+        unsafe {
+            let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
+            cb.recv_stream = callback;
+            self.inner.cb = cb;
+        }
+        self
+    }
+
     #[cfg(feature = "am")]
     pub fn cb_recv_am(mut self, callback: ucp_am_recv_data_nbx_callback_t) -> Self {
         self.inner.op_attr_mask |= ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32;
@@ -79,4 +89,3 @@ impl RequestParam {
         &self.inner as *const _
     }
 }
-
