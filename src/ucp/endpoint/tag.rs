@@ -26,27 +26,38 @@ impl Worker {
         unsafe extern "C" fn callback(
             request: *mut c_void,
             status: ucs_status_t,
-            info: *mut ucp_tag_recv_info,
+            info: *const ucp_tag_recv_info,
+            _user_data: *mut c_void,
         ) {
             let length = (*info).length;
+            let sender_tag = (*info).sender_tag;
             trace!(
-                "tag_recv: complete. req={:?}, status={:?}, len={}",
+                "tag_recv: complete. req={:?}, status={:?}, tag={}, len={}",
                 request,
                 status,
+                sender_tag,
                 length
             );
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
+        let param = ucp_request_param_t {
+            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32,
+            cb: unsafe {
+                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
+                cb.recv = Some(callback);
+                cb
+            },
+            ..unsafe { std::mem::zeroed() }
+        };
         let status = unsafe {
-            ucp_tag_recv_nb(
+            ucp_tag_recv_nbx(
                 self.handle,
                 buf.as_mut_ptr() as _,
                 buf.len() as _,
-                ucp_dt_make_contig(1),
                 tag,
                 tag_mask,
-                Some(callback),
+                &param,
             )
         };
 
@@ -72,27 +83,41 @@ impl Worker {
         unsafe extern "C" fn callback(
             request: *mut c_void,
             status: ucs_status_t,
-            info: *mut ucp_tag_recv_info,
+            info: *const ucp_tag_recv_info,
+            _user_data: *mut c_void,
         ) {
             let length = (*info).length;
+            let tag = (*info).sender_tag;
             trace!(
-                "tag_recv_vectored: complete. req={:?}, status={:?}, len={}",
+                "tag_recv_vectored: complete. req={:?}, status={:?}, tag={}, len={}",
                 request,
                 status,
+                tag,
                 length
             );
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
+        // --- 修改为ucp_tag_recv_nbx ---
+        let param = ucp_request_param_t {
+            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32
+                | ucp_op_attr_t::UCP_OP_ATTR_FIELD_DATATYPE as u32,
+            cb: unsafe {
+                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
+                cb.recv = Some(callback);
+                cb
+            },
+            datatype: ucp_dt_type::UCP_DATATYPE_IOV as _,
+            ..unsafe { std::mem::zeroed() }
+        };
         let status = unsafe {
-            ucp_tag_recv_nb(
+            ucp_tag_recv_nbx(
                 self.handle,
                 iov.as_ptr() as _,
                 iov.len() as _,
-                ucp_dt_type::UCP_DATATYPE_IOV as _,
                 tag,
                 u64::max_value(),
-                Some(callback),
+                &param,
             )
         };
         Error::from_ptr(status)?;
@@ -109,19 +134,31 @@ impl Endpoint {
     /// Sends a messages with `tag`.
     pub async fn tag_send(&self, tag: u64, buf: &[u8]) -> Result<usize, Error> {
         trace!("tag_send: endpoint={:?} len={}", self.handle, buf.len());
-        unsafe extern "C" fn callback(request: *mut c_void, status: ucs_status_t) {
+        unsafe extern "C" fn callback(
+            request: *mut c_void,
+            status: ucs_status_t,
+            _user_data: *mut c_void,
+        ) {
             trace!("tag_send: complete. req={:?}, status={:?}", request, status);
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
+        let param = ucp_request_param_t {
+            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32,
+            cb: unsafe {
+                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
+                cb.send = Some(callback);
+                cb
+            },
+            ..unsafe { std::mem::zeroed() }
+        };
         let status = unsafe {
-            ucp_tag_send_nb(
+            ucp_tag_send_nbx(
                 self.get_handle()?,
                 buf.as_ptr() as _,
                 buf.len() as _,
-                ucp_dt_make_contig(1),
                 tag,
-                Some(callback),
+                &param,
             )
         };
         if status.is_null() {
@@ -145,7 +182,11 @@ impl Endpoint {
             self.handle,
             iov.len()
         );
-        unsafe extern "C" fn callback(request: *mut c_void, status: ucs_status_t) {
+        unsafe extern "C" fn callback(
+            request: *mut c_void,
+            status: ucs_status_t,
+            _user_data: *mut c_void,
+        ) {
             trace!(
                 "tag_send_vectored: complete. req={:?}, status={:?}",
                 request,
@@ -154,14 +195,24 @@ impl Endpoint {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
+        let param = ucp_request_param_t {
+            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32
+                | ucp_op_attr_t::UCP_OP_ATTR_FIELD_DATATYPE as u32,
+            cb: unsafe {
+                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
+                cb.send = Some(callback);
+                cb
+            },
+            datatype: ucp_dt_type::UCP_DATATYPE_IOV as _,
+            ..unsafe { std::mem::zeroed() }
+        };
         let status = unsafe {
-            ucp_tag_send_nb(
+            ucp_tag_send_nbx(
                 self.get_handle()?,
                 iov.as_ptr() as _,
                 iov.len() as _,
-                ucp_dt_type::UCP_DATATYPE_IOV as _,
                 tag,
-                Some(callback),
+                &param,
             )
         };
         let total_len = iov.iter().map(|v| v.len()).sum();
