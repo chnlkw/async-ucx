@@ -119,7 +119,7 @@ impl Endpoint {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        let param = RequestParam::new().send_cb(Some(callback));
+        let param = RequestParam::new().cb_send(Some(callback));
         let status = unsafe {
             ucp_put_nbx(
                 self.get_handle()?,
@@ -152,7 +152,7 @@ impl Endpoint {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        let param = RequestParam::new().send_cb(Some(callback));
+        let param = RequestParam::new().cb_send(Some(callback));
         let status = unsafe {
             ucp_get_nbx(
                 self.get_handle()?,

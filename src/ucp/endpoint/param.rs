@@ -12,7 +12,7 @@ impl RequestParam {
         }
     }
 
-    pub fn send_cb(mut self, callback: ucp_send_nbx_callback_t) -> Self {
+    pub fn cb_send(mut self, callback: ucp_send_nbx_callback_t) -> Self {
         self.inner.op_attr_mask |= ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32;
         unsafe {
             let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();

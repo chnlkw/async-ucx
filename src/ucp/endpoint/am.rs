@@ -538,7 +538,7 @@ async fn am_send(
     }
 
     // Use RequestParam builder for send
-    let param = RequestParam::new().send_cb(Some(callback));
+    let param = RequestParam::new().cb_send(Some(callback));
     let param = match proto {
         Some(AmProto::Eager) => param.set_flag_eager(),
         Some(AmProto::Rndv) => param.set_flag_rndv(),

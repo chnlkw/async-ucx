@@ -128,7 +128,7 @@ impl Endpoint {
             request.waker.wake();
         }
         // Use RequestParam builder
-        let param = RequestParam::new().send_cb(Some(callback));
+        let param = RequestParam::new().cb_send(Some(callback));
         let status = unsafe {
             ucp_tag_send_nbx(
                 self.get_handle()?,
@@ -173,7 +173,7 @@ impl Endpoint {
             request.waker.wake();
         }
         // Use RequestParam builder for iov
-        let param = RequestParam::new().send_cb(Some(callback)).iov();
+        let param = RequestParam::new().cb_send(Some(callback)).iov();
         let status = unsafe {
             ucp_tag_send_nbx(
                 self.get_handle()?,
