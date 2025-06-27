@@ -1,3 +1,4 @@
+use super::param::RequestParam;
 use super::*;
 use std::io::{IoSlice, IoSliceMut};
 
@@ -41,15 +42,8 @@ impl Worker {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        let param = ucp_request_param_t {
-            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32,
-            cb: unsafe {
-                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
-                cb.recv = Some(callback);
-                cb
-            },
-            ..unsafe { std::mem::zeroed() }
-        };
+        // Use RequestParam builder
+        let param = RequestParam::new().cb_tag_recv(Some(callback));
         let status = unsafe {
             ucp_tag_recv_nbx(
                 self.handle,
@@ -57,7 +51,7 @@ impl Worker {
                 buf.len() as _,
                 tag,
                 tag_mask,
-                &param,
+                param.as_ref(),
             )
         };
 
@@ -98,18 +92,8 @@ impl Worker {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        // --- 修改为ucp_tag_recv_nbx ---
-        let param = ucp_request_param_t {
-            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32
-                | ucp_op_attr_t::UCP_OP_ATTR_FIELD_DATATYPE as u32,
-            cb: unsafe {
-                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
-                cb.recv = Some(callback);
-                cb
-            },
-            datatype: ucp_dt_type::UCP_DATATYPE_IOV as _,
-            ..unsafe { std::mem::zeroed() }
-        };
+        // Use RequestParam builder for iov
+        let param = RequestParam::new().cb_tag_recv(Some(callback)).iov();
         let status = unsafe {
             ucp_tag_recv_nbx(
                 self.handle,
@@ -117,7 +101,7 @@ impl Worker {
                 iov.len() as _,
                 tag,
                 u64::max_value(),
-                &param,
+                param.as_ref(),
             )
         };
         Error::from_ptr(status)?;
@@ -143,22 +127,15 @@ impl Endpoint {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        let param = ucp_request_param_t {
-            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32,
-            cb: unsafe {
-                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
-                cb.send = Some(callback);
-                cb
-            },
-            ..unsafe { std::mem::zeroed() }
-        };
+        // Use RequestParam builder
+        let param = RequestParam::new().send_cb(Some(callback));
         let status = unsafe {
             ucp_tag_send_nbx(
                 self.get_handle()?,
                 buf.as_ptr() as _,
                 buf.len() as _,
                 tag,
-                &param,
+                param.as_ref(),
             )
         };
         if status.is_null() {
@@ -195,24 +172,15 @@ impl Endpoint {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        let param = ucp_request_param_t {
-            op_attr_mask: ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32
-                | ucp_op_attr_t::UCP_OP_ATTR_FIELD_DATATYPE as u32,
-            cb: unsafe {
-                let mut cb: ucp_request_param_t__bindgen_ty_1 = std::mem::zeroed();
-                cb.send = Some(callback);
-                cb
-            },
-            datatype: ucp_dt_type::UCP_DATATYPE_IOV as _,
-            ..unsafe { std::mem::zeroed() }
-        };
+        // Use RequestParam builder for iov
+        let param = RequestParam::new().send_cb(Some(callback)).iov();
         let status = unsafe {
             ucp_tag_send_nbx(
                 self.get_handle()?,
                 iov.as_ptr() as _,
                 iov.len() as _,
                 tag,
-                &param,
+                param.as_ref(),
             )
         };
         let total_len = iov.iter().map(|v| v.len()).sum();

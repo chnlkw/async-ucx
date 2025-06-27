@@ -1,6 +1,7 @@
 use crossbeam::queue::SegQueue;
 use tokio::sync::Notify;
 
+use super::param::RequestParam;
 use super::*;
 use std::{
     io::{IoSlice, IoSliceMut},
@@ -105,7 +106,7 @@ pub struct AmMsg<'a> {
 }
 
 impl<'a> AmMsg<'a> {
-    fn from_raw(worker: &'a Worker, msg: RawMsg) -> Self {
+    fn from_raw(worker: &'a Worker, msg: RawMsg) -> Self{
         AmMsg { worker, msg }
     }
 
@@ -249,22 +250,12 @@ impl<'a> AmMsg<'a> {
                     self.worker.handle,
                     iov.len()
                 );
-                let mut param = MaybeUninit::<ucp_request_param_t>::uninit();
-                let (buffer, count) = unsafe {
-                    let param = &mut *param.as_mut_ptr();
-                    param.op_attr_mask = ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32
-                        | ucp_op_attr_t::UCP_OP_ATTR_FIELD_DATATYPE as u32;
-                    param.cb = ucp_request_param_t__bindgen_ty_1 {
-                        recv_am: Some(callback),
-                    };
 
-                    if iov.len() == 1 {
-                        param.datatype = ucp_dt_make_contig(1);
-                        (iov[0].as_ptr(), iov[0].len())
-                    } else {
-                        param.datatype = ucp_dt_type::UCP_DATATYPE_IOV as _;
-                        (iov.as_ptr() as _, iov.len())
-                    }
+                let param = RequestParam::new().cb_recv_am(Some(callback));
+                let (buffer, count, param) = if iov.len() == 1 {
+                    (iov[0].as_ptr(), iov[0].len(), param)
+                } else {
+                    (iov.as_ptr() as _, iov.len(), param.iov())
                 };
 
                 let status = unsafe {
@@ -273,7 +264,7 @@ impl<'a> AmMsg<'a> {
                         data_desc as _,
                         buffer as _,
                         count as _,
-                        param.as_ptr(),
+                        param.as_ref(),
                     )
                 };
                 if status.is_null() {
@@ -546,34 +537,22 @@ async fn am_send(
         request.waker.wake();
     }
 
-    let mut param = MaybeUninit::<ucp_request_param_t>::uninit();
-    let (buffer, count) = unsafe {
-        let param = &mut *param.as_mut_ptr();
-        param.op_attr_mask = ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32
-            | ucp_op_attr_t::UCP_OP_ATTR_FIELD_DATATYPE as u32
-            | ucp_op_attr_t::UCP_OP_ATTR_FIELD_FLAGS as u32;
-        param.flags = 0;
-        param.cb = ucp_request_param_t__bindgen_ty_1 {
-            send: Some(callback),
-        };
-
-        match proto {
-            Some(AmProto::Eager) => param.flags |= ucp_send_am_flags::UCP_AM_SEND_FLAG_EAGER.0,
-            Some(AmProto::Rndv) => param.flags |= ucp_send_am_flags::UCP_AM_SEND_FLAG_RNDV.0,
-            _ => (),
-        }
-
-        if need_reply {
-            param.flags |= ucp_send_am_flags::UCP_AM_SEND_FLAG_REPLY.0;
-        }
-
-        if data.len() == 1 {
-            param.datatype = ucp_dt_make_contig(1);
-            (data[0].as_ptr(), data[0].len())
-        } else {
-            param.datatype = ucp_dt_type::UCP_DATATYPE_IOV as _;
-            (data.as_ptr() as _, data.len())
-        }
+    // Use RequestParam builder for send
+    let param = RequestParam::new().send_cb(Some(callback));
+    let param = match proto {
+        Some(AmProto::Eager) => param.set_flag_eager(),
+        Some(AmProto::Rndv) => param.set_flag_rndv(),
+        None => param,
+    };
+    let param = if need_reply {
+        param.set_flag_reply()
+    } else {
+        param
+    };
+    let (buffer, count, param) = if data.len() == 1 {
+        (data[0].as_ptr(), data[0].len(), param)
+    } else {
+        (data.as_ptr() as _, data.len(), param.iov())
     };
 
     let status = unsafe {
@@ -584,7 +563,7 @@ async fn am_send(
             header.len() as _,
             buffer as _,
             count as _,
-            param.as_mut_ptr(),
+            param.as_ref(),
         )
     };
     if status.is_null() {

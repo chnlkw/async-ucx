@@ -12,6 +12,7 @@ mod am;
 mod rma;
 mod stream;
 mod tag;
+mod param;
 
 #[cfg(feature = "am")]
 pub use self::am::*;
