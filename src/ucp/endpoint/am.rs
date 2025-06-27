@@ -106,7 +106,7 @@ pub struct AmMsg<'a> {
 }
 
 impl<'a> AmMsg<'a> {
-    fn from_raw(worker: &'a Worker, msg: RawMsg) -> Self{
+    fn from_raw(worker: &'a Worker, msg: RawMsg) -> Self {
         AmMsg { worker, msg }
     }
 

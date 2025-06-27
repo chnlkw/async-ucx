@@ -114,7 +114,11 @@ impl Endpoint {
     /// Stores a contiguous block of data into remote memory.
     pub async fn put(&self, buf: &[u8], remote_addr: u64, rkey: &RKey) -> Result<(), Error> {
         trace!("put: endpoint={:?} len={}", self.handle, buf.len());
-        unsafe extern "C" fn callback(request: *mut c_void, status: ucs_status_t, _user_data: *mut c_void) {
+        unsafe extern "C" fn callback(
+            request: *mut c_void,
+            status: ucs_status_t,
+            _user_data: *mut c_void,
+        ) {
             trace!("put: complete. req={:?}, status={:?}", request, status);
             let request = &mut *(request as *mut Request);
             request.waker.wake();
@@ -147,7 +151,11 @@ impl Endpoint {
     /// Loads a contiguous block of data from remote memory.
     pub async fn get(&self, buf: &mut [u8], remote_addr: u64, rkey: &RKey) -> Result<(), Error> {
         trace!("get: endpoint={:?} len={}", self.handle, buf.len());
-        unsafe extern "C" fn callback(request: *mut c_void, status: ucs_status_t, _user_data: *mut c_void) {
+        unsafe extern "C" fn callback(
+            request: *mut c_void,
+            status: ucs_status_t,
+            _user_data: *mut c_void,
+        ) {
             trace!("get: complete. req={:?}, status={:?}", request, status);
             let request = &mut *(request as *mut Request);
             request.waker.wake();

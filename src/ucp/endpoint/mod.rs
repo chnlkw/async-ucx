@@ -9,10 +9,10 @@ use std::task::Poll;
 
 #[cfg(feature = "am")]
 mod am;
+mod param;
 mod rma;
 mod stream;
 mod tag;
-mod param;
 
 #[cfg(feature = "am")]
 pub use self::am::*;

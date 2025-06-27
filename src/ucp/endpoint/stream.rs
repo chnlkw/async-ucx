@@ -1,11 +1,15 @@
-use super::*;
 use super::param::RequestParam;
+use super::*;
 
 impl Endpoint {
     /// Sends data through stream.
     pub async fn stream_send(&self, buf: &[u8]) -> Result<usize, Error> {
         trace!("stream_send: endpoint={:?} len={}", self.handle, buf.len());
-        unsafe extern "C" fn callback(request: *mut c_void, status: ucs_status_t, _user_data: *mut c_void) {
+        unsafe extern "C" fn callback(
+            request: *mut c_void,
+            status: ucs_status_t,
+            _user_data: *mut c_void,
+        ) {
             trace!(
                 "stream_send: complete. req={:?}, status={:?}",
                 request,
@@ -40,7 +44,12 @@ impl Endpoint {
     /// Receives data from stream.
     pub async fn stream_recv(&self, buf: &mut [MaybeUninit<u8>]) -> Result<usize, Error> {
         trace!("stream_recv: endpoint={:?} len={}", self.handle, buf.len());
-        unsafe extern "C" fn callback(request: *mut c_void, status: ucs_status_t, length: usize, _user_data: *mut c_void) {
+        unsafe extern "C" fn callback(
+            request: *mut c_void,
+            status: ucs_status_t,
+            length: usize,
+            _user_data: *mut c_void,
+        ) {
             trace!(
                 "stream_recv: complete. req={:?}, status={:?}, len={}",
                 request,
@@ -141,9 +150,7 @@ mod tests {
                     }
                     start += len;
                 }
-                let buf: Vec<u8> = unsafe {
-                    buf.into_iter().map(|b| b.assume_init()).collect()
-                };
+                let buf: Vec<u8> = unsafe { buf.into_iter().map(|b| b.assume_init()).collect() };
                 assert_eq!(buf, vec![42u8; msg_size]);
                 println!("stream received");
             }
