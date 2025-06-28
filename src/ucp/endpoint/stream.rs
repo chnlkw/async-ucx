@@ -2,8 +2,7 @@ use super::param::RequestParam;
 use super::*;
 
 impl Endpoint {
-    /// Sends data through stream.
-    pub async fn stream_send(&self, buf: &[u8]) -> Result<usize, Error> {
+    fn stream_send_impl(&self, buf: &[u8]) -> Result<Status<()>, Error> {
         trace!("stream_send: endpoint={:?} len={}", self.handle, buf.len());
         unsafe extern "C" fn callback(
             request: *mut c_void,
@@ -27,22 +26,27 @@ impl Endpoint {
                 param.as_ref(),
             )
         };
-        if status.is_null() {
-            trace!("stream_send: complete");
-        } else if UCS_PTR_IS_PTR(status) {
-            RequestHandle {
-                ptr: status,
-                poll_fn: poll_normal,
-            }
-            .await?;
-        } else {
-            return Err(Error::from_ptr(status).unwrap_err());
-        }
-        Ok(buf.len())
+        Ok(Status::new(status, MaybeUninit::uninit(), poll_normal))
     }
 
-    /// Receives data from stream.
-    pub async fn stream_recv(&self, buf: &mut [MaybeUninit<u8>]) -> Result<usize, Error> {
+    /// Sends data through stream.
+    pub async fn stream_send(&self, buf: &[u8]) -> Result<usize, Error> {
+        match self.stream_send_impl(buf)? {
+            Status::Completed(r) => {
+                match &r {
+                    Ok(()) => trace!("stream_send: complete"),
+                    Err(e) => error!("stream_send error : {:?}", e),
+                }
+                r.map(|_| buf.len())
+            }
+            Status::Scheduled(request_handle) => {
+                request_handle.await?;
+                Ok(buf.len())
+            }
+        }
+    }
+
+    fn stream_recv_impl(&self, buf: &mut [MaybeUninit<u8>]) -> Result<Status<usize>, Error> {
         trace!("stream_recv: endpoint={:?} len={}", self.handle, buf.len());
         unsafe extern "C" fn callback(
             request: *mut c_void,
@@ -70,35 +74,169 @@ impl Endpoint {
                 param.as_ref(),
             )
         };
-        if status.is_null() {
-            let length = unsafe { length.assume_init() } as usize;
-            trace!("stream_recv: complete. len={}", length);
-            Ok(length)
-        } else if UCS_PTR_IS_PTR(status) {
-            Ok(RequestHandle {
-                ptr: status,
-                poll_fn: poll_stream,
+        Ok(Status::new(status, length, poll_stream))
+    }
+
+    /// Receives data from stream.
+    pub async fn stream_recv(&self, buf: &mut [MaybeUninit<u8>]) -> Result<usize, Error> {
+        match self.stream_recv_impl(buf)? {
+            Status::Completed(r) => {
+                match &r {
+                    Ok(x) => trace!("stream_recv: complete. len={}", x),
+                    Err(e) => error!("stream_recv: error : {:?}", e),
+                }
+                r
             }
-            .await)
-        } else {
-            Err(Error::from_ptr(status).unwrap_err())
+            Status::Scheduled(request_handle) => request_handle.await,
         }
     }
 }
 
-fn poll_stream(ptr: ucs_status_ptr_t) -> Poll<usize> {
+fn poll_stream(ptr: ucs_status_ptr_t) -> Poll<Result<usize, Error>> {
     let mut len = MaybeUninit::<usize>::uninit();
     let status = unsafe { ucp_stream_recv_request_test(ptr as _, len.as_mut_ptr() as _) };
     if status == ucs_status_t::UCS_INPROGRESS {
         Poll::Pending
     } else {
-        Poll::Ready(unsafe { len.assume_init() })
+        Poll::Ready(Error::from_status(status).map(|_| unsafe { len.assume_init() }))
+    }
+}
+
+use pin_project::pin_project;
+#[pin_project]
+pub struct WriteStream<'a> {
+    endpoint: &'a Endpoint,
+    #[pin]
+    request: Option<RequestHandle<Result<(), Error>>>,
+}
+
+impl Endpoint {
+    /// make write stream
+    pub fn write_stream(&self) -> WriteStream {
+        WriteStream {
+            endpoint: self,
+            request: None,
+        }
+    }
+}
+use futures::FutureExt;
+use std::task::ready;
+use tokio::io::AsyncWrite;
+use tokio::io::ReadBuf;
+
+fn to_io_error(e: Error) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::NotFound, e)
+}
+
+impl<'a> AsyncWrite for WriteStream<'a> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+            let r = match ready!(req.poll_unpin(cx)) {
+                Ok(_) => Ok(buf.len()),
+                Err(e) => Err(to_io_error(e)),
+            };
+            self.request = None;
+            Poll::Ready(r)
+        } else {
+            match self.endpoint.stream_send_impl(buf) {
+                Ok(Status::Completed(r)) => Poll::Ready(r.map(|_| buf.len()).map_err(to_io_error)),
+                Ok(Status::Scheduled(request_handle)) => {
+                    self.request = Some(request_handle);
+                    Poll::Pending
+                }
+                Err(e) => Poll::Ready(Err(to_io_error(e))),
+            }
+        }
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        todo!()
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        todo!()
+    }
+}
+
+#[pin_project]
+pub struct ReadStream<'a> {
+    endpoint: &'a Endpoint,
+    #[pin]
+    request: Option<RequestHandle<Result<usize, Error>>>,
+}
+
+impl Endpoint {
+    /// make read stream
+    pub fn read_stream(&self) -> ReadStream {
+        ReadStream {
+            endpoint: self,
+            request: None,
+        }
+    }
+}
+
+use tokio::io::AsyncRead;
+impl<'a> AsyncRead for ReadStream<'a> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        out_buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+            let r = match ready!(req.poll_unpin(cx)) {
+                Ok(n) => {
+                    // Safety: The buffer was filled by the recv operation.
+                    unsafe {
+                        out_buf.assume_init(n);
+                        out_buf.advance(n);
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(to_io_error(e)),
+            };
+            self.request = None;
+            Poll::Ready(r)
+        } else {
+            let buf = unsafe { out_buf.unfilled_mut() };
+            match self.endpoint.stream_recv_impl(buf) {
+                Ok(Status::Completed(n_result)) => {
+                    match n_result {
+                        Ok(n) => {
+                            // Safety: The buffer was filled by the recv operation.
+                            unsafe {
+                                out_buf.assume_init(n);
+                                out_buf.advance(n);
+                            }
+                            Poll::Ready(Ok(()))
+                        }
+                        Err(e) => Poll::Ready(Err(to_io_error(e))),
+                    }
+                }
+                Ok(Status::Scheduled(request_handle)) => {
+                    self.request = Some(request_handle);
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+                Err(e) => Poll::Ready(Err(to_io_error(e))),
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     #[test_log::test]
     fn stream() {
         for i in 0..20_usize {
@@ -131,7 +269,6 @@ mod tests {
             async { worker2.connect_socket(addr).await.unwrap() },
         );
 
-        // send stream message
         tokio::join!(
             async {
                 // send
@@ -156,6 +293,23 @@ mod tests {
             }
         );
 
+        tokio::join!(
+            async {
+                // send
+                let buf = vec![42u8; msg_size];
+                endpoint2.write_stream().write_all(&buf).await.unwrap();
+                println!("write_stream");
+            },
+            async {
+                // recv
+                let mut buf = vec![0u8; msg_size];
+                endpoint1.read_stream().read_exact(&mut buf).await.unwrap();
+                assert_eq!(buf, vec![42u8; msg_size]);
+                println!("read_stream");
+            }
+        );
+
+        println!("status {:?}", endpoint2.get_status());
         assert_eq!(endpoint1.get_rc(), (1, 1));
         assert_eq!(endpoint2.get_rc(), (1, 1));
         assert_eq!(endpoint1.close(false).await, Ok(()));

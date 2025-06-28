@@ -89,12 +89,16 @@ impl Endpoint {
         let ptr = Weak::into_raw(weak);
         unsafe extern "C" fn callback(arg: *mut c_void, ep: ucp_ep_h, status: ucs_status_t) {
             let weak: Weak<EndpointInner> = Weak::from_raw(arg as _);
+            println!("error callback");
             if let Some(inner) = weak.upgrade() {
                 inner.set_status(status);
                 // don't drop weak reference
+                println!("no drop");
+                // panic!("{:?}",Error::from_status(status));
                 std::mem::forget(weak);
             } else {
                 // no strong rc, force close endpoint here
+                println!("failed");
                 let status = ucp_ep_close_nb(ep, ucp_ep_close_mode::UCP_EP_CLOSE_MODE_FORCE as _);
                 let _ = Error::from_ptr(status)
                     .map_err(|err| error!("Force close endpoint failed, {}", err));
@@ -302,15 +306,15 @@ impl Drop for Endpoint {
 }
 
 /// A handle to the request returned from async IO functions.
-struct RequestHandle<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> {
+struct RequestHandle<T> {
     ptr: ucs_status_ptr_t,
-    poll_fn: F,
+    poll_fn: fn(ucs_status_ptr_t) -> Poll<T>,
 }
 
-impl<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> Future for RequestHandle<T, F> {
+impl<T> Future for RequestHandle<T> {
     type Output = T;
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
-        if let ret @ Poll::Ready(_) = (self.poll_fn)(self.ptr) {
+        if let ret @ Poll::Ready(_) = { (self.poll_fn)(self.ptr) } {
             return ret;
         }
         let request = unsafe { &mut *(self.ptr as *mut Request) };
@@ -319,10 +323,34 @@ impl<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> Future for RequestHandle<T, F> {
     }
 }
 
-impl<T, F: Fn(ucs_status_ptr_t) -> Poll<T>> Drop for RequestHandle<T, F> {
+impl<T> Drop for RequestHandle<T> {
     fn drop(&mut self) {
         trace!("request free: {:?}", self.ptr);
         unsafe { ucp_request_free(self.ptr as _) };
+    }
+}
+
+enum Status<T> {
+    Completed(Result<T, Error>),
+    Scheduled(RequestHandle<Result<T, Error>>),
+}
+
+impl<T> Status<T> {
+    pub fn new(
+        status: *mut c_void,
+        immediate: MaybeUninit<T>,
+        poll_fn: fn(ucs_status_ptr_t) -> Poll<Result<T, Error>>,
+    ) -> Self {
+        if status.is_null() {
+            Self::Completed(Ok(unsafe { immediate.assume_init() }))
+        } else if UCS_PTR_IS_PTR(status) {
+            Self::Scheduled(RequestHandle {
+                ptr: status,
+                poll_fn,
+            })
+        } else {
+            Self::Completed(Err(Error::from_error(UCS_PTR_RAW_STATUS(status))))
+        }
     }
 }
 
