@@ -26,7 +26,7 @@ impl Endpoint {
                 param.as_ref(),
             )
         };
-        Ok(Status::new(status, MaybeUninit::uninit(), poll_normal))
+        Ok(Status::from(status, MaybeUninit::uninit(), poll_normal))
     }
 
     /// Sends data through stream.
@@ -74,7 +74,7 @@ impl Endpoint {
                 param.as_ref(),
             )
         };
-        Ok(Status::new(status, length, poll_stream))
+        Ok(Status::from(status, length, poll_stream))
     }
 
     /// Receives data from stream.
@@ -318,5 +318,68 @@ mod tests {
         assert_eq!(endpoint2.get_rc(), (1, 1));
         assert_eq!(endpoint2.close(true).await, Ok(()));
         assert_eq!(endpoint2.get_rc(), (1, 0));
+    }
+
+    #[test_log::test]
+    fn stream_send_recv_various_contents_and_sizes() {
+        spawn_thread!(_stream_send_recv_various_contents_and_sizes())
+            .join()
+            .unwrap();
+    }
+
+    async fn _stream_send_recv_various_contents_and_sizes() {
+        let context1 = Context::new().unwrap();
+        let worker1 = context1.create_worker().unwrap();
+        let context2 = Context::new().unwrap();
+        let worker2 = context2.create_worker().unwrap();
+        tokio::task::spawn_local(worker1.clone().polling());
+        tokio::task::spawn_local(worker2.clone().polling());
+
+        // connect with each other
+        let mut listener = worker1
+            .create_listener("0.0.0.0:0".parse().unwrap())
+            .unwrap();
+        let listen_port = listener.socket_addr().unwrap().port();
+        let mut addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        addr.set_port(listen_port);
+
+        let (endpoint1, endpoint2) = tokio::join!(
+            async {
+                let conn1 = listener.next().await;
+                worker1.accept(conn1).await.unwrap()
+            },
+            async { worker2.connect_socket(addr).await.unwrap() },
+        );
+
+        // Test cases: (data, repeat count)
+        let test_cases = vec![
+            (vec![], 1),
+            (vec![0u8], 10),
+            (vec![1, 2, 3, 4, 5], 5),
+            ((0..128).collect::<Vec<u8>>(), 3),
+            ((0..1024).map(|x| (x % 256) as u8).collect::<Vec<u8>>(), 2),
+            ((0..4096).map(|x| (x % 256) as u8).collect::<Vec<u8>>(), 1),
+        ];
+        for (data, repeat) in test_cases {
+            for _ in 0..repeat {
+                // send
+                let send_buf = data.clone();
+                let recv_len = send_buf.len();
+                let mut recv_buf = vec![0u8; recv_len];
+                tokio::join!(
+                    async {
+                        endpoint2.write_stream().write_all(&send_buf).await.unwrap();
+                    },
+                    async {
+                        endpoint1
+                            .read_stream()
+                            .read_exact(&mut recv_buf)
+                            .await
+                            .unwrap();
+                        assert_eq!(recv_buf, send_buf, "data mismatch for len={}", recv_len);
+                    }
+                );
+            }
+        }
     }
 }
