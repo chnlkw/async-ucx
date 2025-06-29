@@ -13,10 +13,14 @@ mod param;
 mod rma;
 mod stream;
 mod tag;
+#[cfg(feature = "util")]
+mod util;
 
 #[cfg(feature = "am")]
 pub use self::am::*;
 pub use self::rma::*;
+#[cfg(feature = "util")]
+pub use self::util::*;
 
 // State associate with ucp_ep_h
 // todo: Add a `get_user_data` to UCX
