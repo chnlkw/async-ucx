@@ -42,6 +42,7 @@ impl Worker {
         }
     }
     /// make tag read stream with mask
+    /// not suggested to use this function, because actual received tag should be checked by user
     pub fn tag_read_stream_mask(&self, tag: u64, tag_mask: u64) -> TagReadStream {
         TagReadStream {
             worker: self,
@@ -211,7 +212,7 @@ pub struct TagReadStream<'a> {
     tag: u64,
     tag_mask: u64,
     #[pin]
-    request: Option<RequestHandle<Result<(u64, usize), Error>>>,
+    request: Option<RequestHandle<Result<ucp_tag_recv_info, Error>>>,
 }
 
 impl<'a> AsyncRead for TagReadStream<'a> {
@@ -222,11 +223,11 @@ impl<'a> AsyncRead for TagReadStream<'a> {
     ) -> Poll<Result<(), std::io::Error>> {
         if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
             let r = match ready!(req.poll_unpin(cx)) {
-                Ok((_, n)) => {
+                Ok(info) => {
                     // Safety: The buffer was filled by the recv operation.
                     unsafe {
-                        out_buf.assume_init(n);
-                        out_buf.advance(n);
+                        out_buf.assume_init(info.length as usize);
+                        out_buf.advance(info.length as usize);
                     }
                     Ok(())
                 }
@@ -239,11 +240,11 @@ impl<'a> AsyncRead for TagReadStream<'a> {
             match self.worker.tag_recv_impl(self.tag, self.tag_mask, buf) {
                 Ok(Status::Completed(n_result)) => {
                     match n_result {
-                        Ok((_, n)) => {
+                        Ok(info) => {
                             // Safety: The buffer was filled by the recv operation.
                             unsafe {
-                                out_buf.assume_init(n);
-                                out_buf.advance(n);
+                                out_buf.assume_init(info.length as usize);
+                                out_buf.advance(info.length as usize);
                             }
                             Poll::Ready(Ok(()))
                         }

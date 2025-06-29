@@ -42,6 +42,12 @@ impl RequestParam {
         self
     }
 
+    pub fn recv_tag_info(mut self, info: *mut ucp_tag_recv_info) -> Self {
+        self.inner.op_attr_mask |= ucp_op_attr_t::UCP_OP_ATTR_FIELD_RECV_INFO as u32;
+        self.inner.recv_info.tag_info = info;
+        self
+    }
+
     #[cfg(feature = "am")]
     pub fn cb_recv_am(mut self, callback: ucp_am_recv_data_nbx_callback_t) -> Self {
         self.inner.op_attr_mask |= ucp_op_attr_t::UCP_OP_ATTR_FIELD_CALLBACK as u32;

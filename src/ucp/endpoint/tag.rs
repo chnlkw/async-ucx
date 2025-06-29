@@ -18,8 +18,11 @@ impl Worker {
         buf: &mut [MaybeUninit<u8>],
     ) -> Result<(u64, usize), Error> {
         match self.tag_recv_impl(tag, tag_mask, buf)? {
-            Status::Completed(r) => r,
-            Status::Scheduled(request_handle) => request_handle.await,
+            Status::Completed(r) => r.map(|info| (info.sender_tag, info.length as usize)),
+            Status::Scheduled(request_handle) => {
+                let info = request_handle.await?;
+                Ok((info.sender_tag, info.length as usize))
+            }
         }
     }
 
@@ -70,7 +73,7 @@ impl Worker {
             poll_fn: poll_tag,
         }
         .await
-        .map(|info| info.1)
+        .map(|info| info.length as usize)
     }
 
     pub(super) fn tag_recv_impl(
@@ -78,7 +81,7 @@ impl Worker {
         tag: u64,
         tag_mask: u64,
         buf: &mut [MaybeUninit<u8>],
-    ) -> Result<Status<(u64, usize)>, Error> {
+    ) -> Result<Status<ucp_tag_recv_info>, Error> {
         trace!(
             "tag_recv: worker={:?}, tag={}, mask={:#x} len={}",
             self.handle,
@@ -104,7 +107,10 @@ impl Worker {
             let request = &mut *(request as *mut Request);
             request.waker.wake();
         }
-        let param = RequestParam::new().cb_tag_recv(Some(callback));
+        let mut info = MaybeUninit::<ucp_tag_recv_info>::uninit();
+        let param = RequestParam::new()
+            .cb_tag_recv(Some(callback))
+            .recv_tag_info(info.as_mut_ptr() as _);
         let status = unsafe {
             ucp_tag_recv_nbx(
                 self.handle,
@@ -115,7 +121,7 @@ impl Worker {
                 param.as_ref(),
             )
         };
-        Ok(Status::from(status, MaybeUninit::uninit(), poll_tag))
+        Ok(Status::from(status, info, poll_tag))
     }
 }
 
@@ -208,14 +214,14 @@ impl Endpoint {
     }
 }
 
-fn poll_tag(ptr: ucs_status_ptr_t) -> Poll<Result<(u64, usize), Error>> {
+fn poll_tag(ptr: ucs_status_ptr_t) -> Poll<Result<ucp_tag_recv_info, Error>> {
     let mut info = MaybeUninit::<ucp_tag_recv_info>::uninit();
     let status = unsafe { ucp_tag_recv_request_test(ptr as _, info.as_mut_ptr() as _) };
     match status {
         ucs_status_t::UCS_INPROGRESS => Poll::Pending,
         ucs_status_t::UCS_OK => {
             let info = unsafe { info.assume_init() };
-            Poll::Ready(Ok((info.sender_tag, info.length as usize)))
+            Poll::Ready(Ok(info))
         }
         status => Poll::Ready(Err(Error::from_error(status))),
     }
@@ -268,6 +274,66 @@ mod tests {
                 // recv
                 let mut buf = vec![MaybeUninit::<u8>::uninit(); msg_size];
                 worker1.tag_recv(1, &mut buf).await.unwrap();
+                println!("tag recved");
+            }
+        );
+
+        assert_eq!(endpoint1.get_rc(), (1, 1));
+        assert_eq!(endpoint2.get_rc(), (1, 1));
+        assert_eq!(endpoint1.close(false).await, Ok(()));
+        assert_eq!(endpoint2.close(false).await, Err(Error::ConnectionReset));
+        assert_eq!(endpoint1.get_rc(), (1, 0));
+        assert_eq!(endpoint2.get_rc(), (1, 1));
+        assert_eq!(endpoint2.close(true).await, Ok(()));
+        assert_eq!(endpoint2.get_rc(), (1, 0));
+    }
+
+    #[test_log::test]
+    fn multi_tag() {
+        for i in 0..20_usize {
+            spawn_thread!(_multi_tag(4 << i)).join().unwrap();
+        }
+    }
+
+    async fn _multi_tag(msg_size: usize) {
+        let context1 = Context::new().unwrap();
+        let worker1 = context1.create_worker().unwrap();
+        let context2 = Context::new().unwrap();
+        let worker2 = context2.create_worker().unwrap();
+        tokio::task::spawn_local(worker1.clone().polling());
+        tokio::task::spawn_local(worker2.clone().polling());
+
+        // connect with each other
+        let mut listener = worker1
+            .create_listener("0.0.0.0:0".parse().unwrap())
+            .unwrap();
+        let listen_port = listener.socket_addr().unwrap().port();
+        println!("listen at port {}", listen_port);
+        let mut addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        addr.set_port(listen_port);
+
+        let (endpoint1, endpoint2) = tokio::join!(
+            async {
+                let conn1 = listener.next().await;
+                worker1.accept(conn1).await.unwrap()
+            },
+            async { worker2.connect_socket(addr).await.unwrap() },
+        );
+
+        // send tag message
+        tokio::join!(
+            async {
+                // send
+                let mut buf = vec![0; msg_size];
+                endpoint2.tag_send(3, &mut buf).await.unwrap();
+                println!("tag sended");
+            },
+            async {
+                // recv
+                let mut buf = vec![MaybeUninit::<u8>::uninit(); msg_size];
+                let (tag, size) = worker1.tag_recv_mask(0, 0, &mut buf).await.unwrap();
+                assert_eq!(size, msg_size);
+                assert_eq!(tag, 3);
                 println!("tag recved");
             }
         );
