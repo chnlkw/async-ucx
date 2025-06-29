@@ -124,10 +124,6 @@ use std::task::ready;
 use tokio::io::AsyncWrite;
 use tokio::io::ReadBuf;
 
-fn to_io_error(e: Error) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::NotFound, e)
-}
-
 impl<'a> AsyncWrite for WriteStream<'a> {
     fn poll_write(
         mut self: Pin<&mut Self>,
@@ -137,18 +133,18 @@ impl<'a> AsyncWrite for WriteStream<'a> {
         if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
             let r = match ready!(req.poll_unpin(cx)) {
                 Ok(_) => Ok(buf.len()),
-                Err(e) => Err(to_io_error(e)),
+                Err(e) => Err(e.into()),
             };
             self.request = None;
             Poll::Ready(r)
         } else {
             match self.endpoint.stream_send_impl(buf) {
-                Ok(Status::Completed(r)) => Poll::Ready(r.map(|_| buf.len()).map_err(to_io_error)),
+                Ok(Status::Completed(r)) => Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into())),
                 Ok(Status::Scheduled(request_handle)) => {
                     self.request = Some(request_handle);
                     Poll::Pending
                 }
-                Err(e) => Poll::Ready(Err(to_io_error(e))),
+                Err(e) => Poll::Ready(Err(e.into())),
             }
         }
     }
@@ -202,7 +198,7 @@ impl<'a> AsyncRead for ReadStream<'a> {
                     }
                     Ok(())
                 }
-                Err(e) => Err(to_io_error(e)),
+                Err(e) => Err(e.into()),
             };
             self.request = None;
             Poll::Ready(r)
@@ -219,7 +215,7 @@ impl<'a> AsyncRead for ReadStream<'a> {
                             }
                             Poll::Ready(Ok(()))
                         }
-                        Err(e) => Poll::Ready(Err(to_io_error(e))),
+                        Err(e) => Poll::Ready(Err(e.into())),
                     }
                 }
                 Ok(Status::Scheduled(request_handle)) => {
@@ -227,7 +223,7 @@ impl<'a> AsyncRead for ReadStream<'a> {
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
-                Err(e) => Poll::Ready(Err(to_io_error(e))),
+                Err(e) => Poll::Ready(Err(e.into())),
             }
         }
     }

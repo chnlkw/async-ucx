@@ -163,3 +163,44 @@ impl Error {
         }
     }
 }
+
+impl Into<std::io::Error> for Error {
+    fn into(self) -> std::io::Error {
+        use std::io::ErrorKind::*;
+        let kind = match self {
+            Error::Inprogress => WouldBlock,
+            Error::NoMessage => WouldBlock,
+            Error::NoReource => WouldBlock,
+            Error::IoError => Other,
+            Error::NoMemory => OutOfMemory,
+            Error::InvalidParam => InvalidInput,
+            Error::Unreachable => NotConnected,
+            Error::InvalidAddr => InvalidInput,
+            Error::NotImplemented => Unsupported,
+            Error::MessageTruncated => InvalidData,
+            Error::NoProgress => WouldBlock,
+            Error::BufferTooSmall => UnexpectedEof,
+            Error::NoElem => NotFound,
+            Error::SomeConnectsFailed => ConnectionAborted,
+            Error::NoDevice => NotFound,
+            Error::Busy => ResourceBusy,
+            Error::Canceled => Interrupted,
+            Error::ShmemSegment => Other,
+            Error::AlreadyExists => AlreadyExists,
+            Error::OutOfRange => InvalidInput,
+            Error::Timeout => TimedOut,
+            Error::ExceedsLimit => Other,
+            Error::Unsupported => Unsupported,
+            Error::Rejected => ConnectionRefused,
+            Error::NotConnected => NotConnected,
+            Error::ConnectionReset => ConnectionReset,
+            Error::FirstLinkFailure => Other,
+            Error::LastLinkFailure => Other,
+            Error::FirstEndpointFailure => Other,
+            Error::LastEndpointFailure => Other,
+            Error::EndpointTimeout => TimedOut,
+            Error::Unknown => Other,
+        };
+        std::io::Error::new(kind, self)
+    }
+}
