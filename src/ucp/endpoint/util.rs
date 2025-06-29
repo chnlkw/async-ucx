@@ -363,8 +363,16 @@ mod test {
             (vec![0u8], 2u64, 10),
             (vec![1, 2, 3, 4, 5], 3u64, 5),
             ((0..128).collect::<Vec<u8>>(), 4u64, 3),
-            ((0..1024).map(|x| (x % 256) as u8).collect::<Vec<u8>>(), 5u64, 2),
-            ((0..4096).map(|x| (x % 256) as u8).collect::<Vec<u8>>(), 6u64, 1),
+            (
+                (0..1024).map(|x| (x % 256) as u8).collect::<Vec<u8>>(),
+                5u64,
+                2,
+            ),
+            (
+                (0..4096).map(|x| (x % 256) as u8).collect::<Vec<u8>>(),
+                6u64,
+                1,
+            ),
         ];
         for (data, tag, repeat) in test_cases {
             for _ in 0..repeat {
@@ -374,7 +382,11 @@ mod test {
                 let mut recv_buf = vec![0u8; recv_len];
                 tokio::join!(
                     async {
-                        endpoint2.tag_write_stream(tag).write_all(&send_buf).await.unwrap();
+                        endpoint2
+                            .tag_write_stream(tag)
+                            .write_all(&send_buf)
+                            .await
+                            .unwrap();
                     },
                     async {
                         worker1
@@ -382,7 +394,11 @@ mod test {
                             .read_exact(&mut recv_buf)
                             .await
                             .unwrap();
-                        assert_eq!(recv_buf, send_buf, "data mismatch for tag={}, len={}", tag, recv_len);
+                        assert_eq!(
+                            recv_buf, send_buf,
+                            "data mismatch for tag={}, len={}",
+                            tag, recv_len
+                        );
                     }
                 );
             }
