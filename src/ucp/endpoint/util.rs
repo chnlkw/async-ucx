@@ -87,17 +87,23 @@ impl<'a> AsyncWrite for WriteStream<'a> {
     }
 
     fn poll_flush(
-        self: Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+            let r = ready!(req.poll_unpin(cx));
+            self.request = None;
+            Poll::Ready(r.map_err(|e| e.into()))
+        } else {
+            Poll::Ready(Ok(()))
+        }
     }
 
     fn poll_shutdown(
         self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -191,17 +197,23 @@ impl<'a> AsyncWrite for TagWriteStream<'a> {
     }
 
     fn poll_flush(
-        self: Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+            let r = ready!(req.poll_unpin(cx));
+            self.request = None;
+            Poll::Ready(r.map_err(|e| e.into()))
+        } else {
+            Poll::Ready(Ok(()))
+        }
     }
 
     fn poll_shutdown(
         self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
     }
 }
 
