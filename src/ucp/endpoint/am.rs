@@ -295,6 +295,15 @@ impl<'a> AmMsg<'a> {
             && !self.msg.reply_ep.is_null()
     }
 
+    /// return endpoint handler
+    pub fn reply_ep(&self) -> Option<EndpointHandler> {
+        if self.need_reply() {
+            Some(EndpointHandler(self.msg.reply_ep))
+        } else {
+            None
+        }
+    }
+
     /// Send reply
     /// # Safety
     /// User needs to ensure that the endpoint isn't closed.
