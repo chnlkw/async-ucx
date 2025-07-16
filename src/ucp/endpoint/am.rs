@@ -309,7 +309,7 @@ impl<'a> AmMsg<'a> {
     /// User needs to ensure that the endpoint isn't closed.
     pub async unsafe fn reply(
         &self,
-        id: u32,
+        id: u16,
         header: &[u8],
         data: &[u8],
         need_reply: bool,
@@ -327,7 +327,7 @@ impl<'a> AmMsg<'a> {
     /// User needs to ensure that the endpoint isn't closed.
     pub async unsafe fn reply_vectorized(
         &self,
-        id: u32,
+        id: u16,
         header: &[u8],
         data: &[IoSlice<'_>],
         need_reply: bool,
@@ -497,7 +497,7 @@ impl Endpoint {
     /// Send active message.
     pub async fn am_send(
         &self,
-        id: u32,
+        id: u16,
         header: &[u8],
         data: &[u8],
         need_reply: bool,
@@ -511,7 +511,7 @@ impl Endpoint {
     /// Send active message.
     pub async fn am_send_vectorized(
         &self,
-        id: u32,
+        id: u16,
         header: &[u8],
         data: &[IoSlice<'_>],
         need_reply: bool,
@@ -534,7 +534,7 @@ pub enum AmProto {
 
 async fn am_send(
     endpoint: ucp_ep_h,
-    id: u32,
+    id: u16,
     header: &[u8],
     data: &[IoSlice<'_>],
     need_reply: bool,
@@ -567,7 +567,7 @@ async fn am_send(
     let status = unsafe {
         ucp_am_send_nbx(
             endpoint,
-            id,
+            id as u32,
             header.as_ptr() as _,
             header.len() as _,
             buffer as _,
