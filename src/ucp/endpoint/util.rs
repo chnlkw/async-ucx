@@ -177,36 +177,40 @@ impl<'a> AsyncWrite for TagWriteStream<'a> {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
-            let r = match ready!(req.poll_unpin(cx)) {
-                Ok(_) => Ok(buf.len()),
-                Err(e) => Err(e.into()),
-            };
-            self.request = None;
-            Poll::Ready(r)
-        } else {
-            match self.endpoint.tag_send_impl(self.tag, buf) {
-                Ok(Status::Completed(r)) => Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into())),
-                Ok(Status::Scheduled(request_handle)) => {
-                    self.request = Some(request_handle);
-                    Poll::Pending
+        loop {
+            if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+                let r = match ready!(req.poll_unpin(cx)) {
+                    Ok(_) => Ok(buf.len()),
+                    Err(e) => Err(e.into()),
+                };
+                self.request = None;
+                return Poll::Ready(r);
+            } else {
+                match self.endpoint.tag_send_impl(self.tag, buf) {
+                    Ok(Status::Completed(r)) => {
+                        return Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into()));
+                    }
+                    Ok(Status::Scheduled(request_handle)) => {
+                        self.request = Some(request_handle);
+                    }
+                    Err(e) => return Poll::Ready(Err(e.into())),
                 }
-                Err(e) => Poll::Ready(Err(e.into())),
             }
         }
     }
 
     fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
-            let r = ready!(req.poll_unpin(cx));
-            self.request = None;
-            Poll::Ready(r.map_err(|e| e.into()))
-        } else {
-            Poll::Ready(Ok(()))
-        }
+        assert!(self.request.is_none());
+        // if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+        //     let r = ready!(req.poll_unpin(cx));
+        //     self.request = None;
+        //     Poll::Ready(r.map_err(|e| e.into()))
+        // } else {
+        Poll::Ready(Ok(()))
+        // }
     }
 
     fn poll_shutdown(
