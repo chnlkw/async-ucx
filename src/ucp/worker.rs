@@ -107,7 +107,7 @@ impl Worker {
 
         Ok(WorkerAddress {
             handle: unsafe { handle.assume_init() },
-            length: unsafe { length.assume_init() } as usize,
+            length: unsafe { length.assume_init() },
             worker: self,
         })
     }

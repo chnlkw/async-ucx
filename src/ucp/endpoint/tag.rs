@@ -18,7 +18,7 @@ impl Worker {
         buf: &mut [MaybeUninit<u8>],
     ) -> Result<(u64, usize), Error> {
         match self.tag_recv_impl(tag, tag_mask, buf)? {
-            Status::Completed(r) => r.map(|info| (info.sender_tag, info.length as usize)),
+            Status::Completed(r) => r.map(|info| (info.sender_tag, info.length)),
             Status::Scheduled(request_handle) => {
                 let info = request_handle.await?;
                 Ok((info.sender_tag, info.length as usize))
@@ -73,7 +73,7 @@ impl Worker {
             poll_fn: poll_tag,
         }
         .await
-        .map(|info| info.length as usize)
+        .map(|info| info.length)
     }
 
     pub(super) fn tag_recv_impl(

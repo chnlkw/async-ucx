@@ -8,21 +8,21 @@ use tokio::io::ReadBuf;
 
 impl Endpoint {
     /// make write stream
-    pub fn write_stream(&self) -> WriteStream {
+    pub fn write_stream(&self) -> WriteStream<'_> {
         WriteStream {
             endpoint: self,
             request: None,
         }
     }
     /// make read stream
-    pub fn read_stream(&self) -> ReadStream {
+    pub fn read_stream(&self) -> ReadStream<'_> {
         ReadStream {
             endpoint: self,
             request: None,
         }
     }
     /// make tag write stream
-    pub fn tag_write_stream(&self, tag: u64) -> TagWriteStream {
+    pub fn tag_write_stream(&self, tag: u64) -> TagWriteStream<'_> {
         TagWriteStream {
             endpoint: self,
             tag,
@@ -33,7 +33,7 @@ impl Endpoint {
 
 impl Worker {
     /// make tag read stream
-    pub fn tag_read_stream(&self, tag: u64) -> TagReadStream {
+    pub fn tag_read_stream(&self, tag: u64) -> TagReadStream<'_> {
         TagReadStream {
             worker: self,
             tag,
@@ -43,7 +43,7 @@ impl Worker {
     }
     /// make tag read stream with mask
     /// not suggested to use this function, because actual received tag should be checked by user
-    pub fn tag_read_stream_mask(&self, tag: u64, tag_mask: u64) -> TagReadStream {
+    pub fn tag_read_stream_mask(&self, tag: u64, tag_mask: u64) -> TagReadStream<'_> {
         TagReadStream {
             worker: self,
             tag,
@@ -67,21 +67,24 @@ impl<'a> AsyncWrite for WriteStream<'a> {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
-            let r = match ready!(req.poll_unpin(cx)) {
-                Ok(_) => Ok(buf.len()),
-                Err(e) => Err(e.into()),
-            };
-            self.request = None;
-            Poll::Ready(r)
-        } else {
-            match self.endpoint.stream_send_impl(buf) {
-                Ok(Status::Completed(r)) => Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into())),
-                Ok(Status::Scheduled(request_handle)) => {
-                    self.request = Some(request_handle);
-                    Poll::Pending
+        loop {
+            if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+                let r = match ready!(req.poll_unpin(cx)) {
+                    Ok(_) => Ok(buf.len()),
+                    Err(e) => Err(e.into()),
+                };
+                self.request = None;
+                return Poll::Ready(r);
+            } else {
+                match self.endpoint.stream_send_impl(buf) {
+                    Ok(Status::Completed(r)) => {
+                        return Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into()))
+                    }
+                    Ok(Status::Scheduled(request_handle)) => {
+                        self.request = Some(request_handle);
+                    }
+                    Err(e) => return Poll::Ready(Err(e.into())),
                 }
-                Err(e) => Poll::Ready(Err(e.into())),
             }
         }
     }
@@ -177,36 +180,40 @@ impl<'a> AsyncWrite for TagWriteStream<'a> {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
-            let r = match ready!(req.poll_unpin(cx)) {
-                Ok(_) => Ok(buf.len()),
-                Err(e) => Err(e.into()),
-            };
-            self.request = None;
-            Poll::Ready(r)
-        } else {
-            match self.endpoint.tag_send_impl(self.tag, buf) {
-                Ok(Status::Completed(r)) => Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into())),
-                Ok(Status::Scheduled(request_handle)) => {
-                    self.request = Some(request_handle);
-                    Poll::Pending
+        loop {
+            if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+                let r = match ready!(req.poll_unpin(cx)) {
+                    Ok(_) => Ok(buf.len()),
+                    Err(e) => Err(e.into()),
+                };
+                self.request = None;
+                return Poll::Ready(r);
+            } else {
+                match self.endpoint.tag_send_impl(self.tag, buf) {
+                    Ok(Status::Completed(r)) => {
+                        return Poll::Ready(r.map(|_| buf.len()).map_err(|e| e.into()));
+                    }
+                    Ok(Status::Scheduled(request_handle)) => {
+                        self.request = Some(request_handle);
+                    }
+                    Err(e) => return Poll::Ready(Err(e.into())),
                 }
-                Err(e) => Poll::Ready(Err(e.into())),
             }
         }
     }
 
     fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
-            let r = ready!(req.poll_unpin(cx));
-            self.request = None;
-            Poll::Ready(r.map_err(|e| e.into()))
-        } else {
-            Poll::Ready(Ok(()))
-        }
+        assert!(self.request.is_none());
+        // if let Some(mut req) = self.as_mut().project().request.as_pin_mut() {
+        //     let r = ready!(req.poll_unpin(cx));
+        //     self.request = None;
+        //     Poll::Ready(r.map_err(|e| e.into()))
+        // } else {
+        Poll::Ready(Ok(()))
+        // }
     }
 
     fn poll_shutdown(
@@ -238,8 +245,8 @@ impl<'a> AsyncRead for TagReadStream<'a> {
                 Ok(info) => {
                     // Safety: The buffer was filled by the recv operation.
                     unsafe {
-                        out_buf.assume_init(info.length as usize);
-                        out_buf.advance(info.length as usize);
+                        out_buf.assume_init(info.length);
+                        out_buf.advance(info.length);
                     }
                     Ok(())
                 }
@@ -255,8 +262,8 @@ impl<'a> AsyncRead for TagReadStream<'a> {
                         Ok(info) => {
                             // Safety: The buffer was filled by the recv operation.
                             unsafe {
-                                out_buf.assume_init(info.length as usize);
-                                out_buf.advance(info.length as usize);
+                                out_buf.assume_init(info.length);
+                                out_buf.advance(info.length);
                             }
                             Poll::Ready(Ok(()))
                         }

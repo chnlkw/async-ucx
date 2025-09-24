@@ -83,6 +83,12 @@ pub struct Endpoint {
     inner: Rc<EndpointInner>,
 }
 
+/// Type alias of Endpoint handler
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EndpointHandler(ucp_ep_h);
+unsafe impl Sync for EndpointHandler {}
+unsafe impl Send for EndpointHandler {}
+
 impl Endpoint {
     fn create(worker: &Rc<Worker>, mut params: ucp_ep_params) -> Result<Self, Error> {
         let inner = Rc::new(EndpointInner::new(worker.clone()));
@@ -203,6 +209,11 @@ impl Endpoint {
     fn get_handle(&self) -> Result<ucp_ep_h, Error> {
         self.inner.check()?;
         Ok(self.handle)
+    }
+
+    /// Get the endpoint handler
+    pub fn handler(&self) -> Result<EndpointHandler, Error> {
+        Ok(EndpointHandler(self.get_handle()?))
     }
 
     /// Print endpoint information to stderr.
