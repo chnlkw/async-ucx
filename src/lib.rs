@@ -164,10 +164,10 @@ impl Error {
     }
 }
 
-impl Into<std::io::Error> for Error {
-    fn into(self) -> std::io::Error {
+impl From<Error> for std::io::Error {
+    fn from(val: Error) -> Self {
         use std::io::ErrorKind::*;
-        let kind = match self {
+        let kind = match val {
             Error::Inprogress => WouldBlock,
             Error::NoMessage => WouldBlock,
             Error::NoReource => WouldBlock,
@@ -201,6 +201,6 @@ impl Into<std::io::Error> for Error {
             Error::EndpointTimeout => TimedOut,
             Error::Unknown => Other,
         };
-        std::io::Error::new(kind, self)
+        std::io::Error::new(kind, val)
     }
 }

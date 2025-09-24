@@ -245,8 +245,8 @@ impl<'a> AsyncRead for TagReadStream<'a> {
                 Ok(info) => {
                     // Safety: The buffer was filled by the recv operation.
                     unsafe {
-                        out_buf.assume_init(info.length as usize);
-                        out_buf.advance(info.length as usize);
+                        out_buf.assume_init(info.length);
+                        out_buf.advance(info.length);
                     }
                     Ok(())
                 }
@@ -262,8 +262,8 @@ impl<'a> AsyncRead for TagReadStream<'a> {
                         Ok(info) => {
                             // Safety: The buffer was filled by the recv operation.
                             unsafe {
-                                out_buf.assume_init(info.length as usize);
-                                out_buf.advance(info.length as usize);
+                                out_buf.assume_init(info.length);
+                                out_buf.advance(info.length);
                             }
                             Poll::Ready(Ok(()))
                         }

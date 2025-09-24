@@ -91,7 +91,7 @@ impl Context {
                 | ucp_params_field::UCP_PARAM_FIELD_MT_WORKERS_SHARED)
                 .0 as u64,
             features: features.0 as u64,
-            request_size: std::mem::size_of::<Request>() as usize,
+            request_size: std::mem::size_of::<Request>(),
             request_init: Some(Request::init),
             request_cleanup: Some(Request::cleanup),
             mt_workers_shared: 1,

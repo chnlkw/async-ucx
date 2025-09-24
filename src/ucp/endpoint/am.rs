@@ -9,7 +9,7 @@ use std::{
     sync::atomic::AtomicBool,
 };
 
-//// Active message protocol.
+/// Active message protocol.
 /// Active message protocol is a mechanism for sending and receiving messages
 /// between processes in a distributed system.
 /// It allows a process to send a message to another process, which can then
@@ -222,7 +222,7 @@ impl<'a> AmMsg<'a> {
             }
             Some(AmData::Data(data)) => {
                 // data message, no need to receive
-                let size = copy_data_to_iov(&data, iov)?;
+                let size = copy_data_to_iov(data, iov)?;
                 self.drop_msg(AmData::Data(data));
                 Ok(size)
             }
@@ -439,8 +439,8 @@ impl Worker {
             param: *const ucp_am_recv_param_t,
         ) -> ucs_status_t {
             let handler = &*(arg as *const AmStreamInner);
-            let header = slice::from_raw_parts(header as *const u8, header_len as usize);
-            let data = slice::from_raw_parts(data as *const u8, data_len as usize);
+            let header = slice::from_raw_parts(header as *const u8, header_len);
+            let data = slice::from_raw_parts(data as *const u8, data_len);
 
             let param = &*param;
             handler.callback(header, data, param.reply_ep, param.recv_attr);
@@ -460,7 +460,7 @@ impl Worker {
         }
         self.am_streams.write().unwrap().insert(id, stream.clone());
 
-        return Ok(AmStream::new(self, stream));
+        Ok(AmStream::new(self, stream))
     }
 
     /// Register active message handler for `id`.
@@ -596,7 +596,7 @@ mod tests {
 
     #[test_log::test]
     fn am() {
-        let protos = vec![None, Some(AmProto::Eager), Some(AmProto::Rndv)];
+        let protos = [None, Some(AmProto::Eager), Some(AmProto::Rndv)];
         for block_size_shift in 0..20_usize {
             for p in protos.iter() {
                 let rt = tokio::runtime::Builder::new_current_thread()
@@ -650,13 +650,13 @@ mod tests {
                 let msg = stream1.wait_msg().await;
                 let mut msg = msg.expect("no msg");
                 assert_eq!(msg.header(), &header);
-                assert_eq!(msg.contains_data(), true);
+                assert!(msg.contains_data());
                 assert_eq!(msg.data_len(), data.len());
                 let mut recv_data = vec![0_u8; msg.data_len()];
                 let recv_len = msg.recv_data_single(&mut recv_data).await.unwrap();
                 assert_eq!(data.len(), recv_len);
                 assert_eq!(data, recv_data);
-                assert_eq!(msg.contains_data(), false);
+                assert!(!msg.contains_data());
                 msg
             }
         );
@@ -674,11 +674,11 @@ mod tests {
                 let reply = stream2.wait_msg().await;
                 let mut reply = reply.expect("no reply");
                 assert_eq!(reply.header(), &header);
-                assert_eq!(reply.contains_data(), true);
+                assert!(reply.contains_data());
                 assert_eq!(reply.data_len(), data.len());
                 let recv_data = reply.recv_data().await.unwrap();
                 assert_eq!(data, recv_data);
-                assert_eq!(reply.contains_data(), false);
+                assert!(!reply.contains_data());
             }
         );
 
