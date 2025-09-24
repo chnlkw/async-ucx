@@ -8,21 +8,21 @@ use tokio::io::ReadBuf;
 
 impl Endpoint {
     /// make write stream
-    pub fn write_stream(&self) -> WriteStream {
+    pub fn write_stream(&self) -> WriteStream<'_> {
         WriteStream {
             endpoint: self,
             request: None,
         }
     }
     /// make read stream
-    pub fn read_stream(&self) -> ReadStream {
+    pub fn read_stream(&self) -> ReadStream<'_> {
         ReadStream {
             endpoint: self,
             request: None,
         }
     }
     /// make tag write stream
-    pub fn tag_write_stream(&self, tag: u64) -> TagWriteStream {
+    pub fn tag_write_stream(&self, tag: u64) -> TagWriteStream<'_> {
         TagWriteStream {
             endpoint: self,
             tag,
@@ -33,7 +33,7 @@ impl Endpoint {
 
 impl Worker {
     /// make tag read stream
-    pub fn tag_read_stream(&self, tag: u64) -> TagReadStream {
+    pub fn tag_read_stream(&self, tag: u64) -> TagReadStream<'_> {
         TagReadStream {
             worker: self,
             tag,
@@ -43,7 +43,7 @@ impl Worker {
     }
     /// make tag read stream with mask
     /// not suggested to use this function, because actual received tag should be checked by user
-    pub fn tag_read_stream_mask(&self, tag: u64, tag_mask: u64) -> TagReadStream {
+    pub fn tag_read_stream_mask(&self, tag: u64, tag_mask: u64) -> TagReadStream<'_> {
         TagReadStream {
             worker: self,
             tag,
