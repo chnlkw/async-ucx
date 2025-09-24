@@ -1,6 +1,6 @@
 [package]
 name = "ucx1-sys"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Runji Wang <wangrunji0408@163.com>"]
 edition = "2021"
 description = "Rust FFI bindings to UCX."
