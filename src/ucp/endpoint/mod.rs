@@ -352,7 +352,7 @@ impl<T> Status<T> {
         immediate: MaybeUninit<T>,
         poll_fn: fn(ucs_status_ptr_t) -> Poll<Result<T, Error>>,
     ) -> Self {
-        if UCS_PTR_RAW_STATUS(status) == ucs_status_t::UCS_OK {
+        if status.is_null() {
             Self::Completed(Ok(unsafe { immediate.assume_init() }))
         } else if UCS_PTR_IS_ERR(status) {
             Self::Completed(Err(Error::from_error(UCS_PTR_RAW_STATUS(status))))
